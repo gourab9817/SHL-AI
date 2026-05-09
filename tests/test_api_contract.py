@@ -19,6 +19,9 @@ def test_app_lifespan_loads_catalog_index() -> None:
 
         assert response.status_code == 200
         assert len(lifespan_client.app.state.catalog_index.products) == 377
+        assert lifespan_client.app.state.catalog_retriever.search("personality")[0].product.name == (
+            "Occupational Personality Questionnaire OPQ32r"
+        )
 
 
 def test_chat_returns_required_schema_for_valid_request() -> None:
