@@ -49,6 +49,18 @@ NO_PREFERENCE_PATTERNS = (
     "don't care",
 )
 
+ACTION_BOUNDARY_WORDS = (
+    "add",
+    "include",
+    "also add",
+    "drop",
+    "remove",
+    "exclude",
+    "skip",
+    "replace",
+    "swap",
+)
+
 SENIORITY_PATTERNS = (
     ("executive", ("executive", "cxo", "cxos", "director", "leadership", "15 years")),
     ("senior", ("senior", "lead", "principal", "5+ years", "5 years", "10 years")),
@@ -226,7 +238,7 @@ class ConversationContextExtractor:
         if not any(action_word in normalized_latest for action_word in action_words):
             return ()
 
-        product_names = tuple(product.name for product in self._find_products_in_text(latest_user_message))
+        product_names = self._extract_products_from_action_clause(normalized_latest, action_words)
         if product_names:
             return product_names
 
@@ -234,6 +246,33 @@ class ConversationContextExtractor:
         action_tokens = {token for action_word in action_words for token in tokenize(action_word)}
         candidate_tokens = tuple(token for token in tokens if token not in action_tokens)
         return (" ".join(candidate_tokens[:6]),) if candidate_tokens else ()
+
+    def _extract_products_from_action_clause(
+        self,
+        normalized_latest: str,
+        action_words: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        product_names: list[str] = []
+        for action_word in action_words:
+            normalized_action = normalize_text(action_word)
+            action_index = normalized_latest.find(normalized_action)
+            if action_index < 0:
+                continue
+
+            clause_start = action_index + len(normalized_action)
+            clause_end = len(normalized_latest)
+            for boundary_word in ACTION_BOUNDARY_WORDS:
+                normalized_boundary = normalize_text(boundary_word)
+                boundary_index = normalized_latest.find(normalized_boundary, clause_start)
+                if boundary_index >= 0 and boundary_index < clause_end:
+                    clause_end = boundary_index
+
+            clause = normalized_latest[clause_start:clause_end]
+            for product in self._catalog_products_by_longest_name:
+                if normalize_text(product.name) in clause and product.name not in product_names:
+                    product_names.append(product.name)
+
+        return tuple(product_names)
 
     def _is_vague_request(self, normalized_latest: str) -> bool:
         tokens = set(tokenize(normalized_latest))

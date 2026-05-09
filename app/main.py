@@ -4,15 +4,27 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.agent import AssessmentAgent
+from app.agent.responder import DeterministicResponder
 from app.catalog import load_catalog
 from app.config import get_settings
 from app.conversation import ConversationContextExtractor
 from app.guardrails import GuardrailService
-from app.logging_config import configure_logging
+from app.llm import GroqClient, LLMGenerator
+from app.logging_config import configure_logging, RequestLoggingMiddleware
 from app.retrieval import CatalogRetriever
 from app.schemas import ChatRequest, ChatResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _build_llm_generator(
+    settings,
+    catalog_index,
+    responder: DeterministicResponder,
+) -> LLMGenerator:
+    client = GroqClient(settings)
+    return LLMGenerator(client=client, catalog=catalog_index, responder=responder)
 
 
 @asynccontextmanager
@@ -24,6 +36,17 @@ async def lifespan(fastapi_app: FastAPI):
     fastapi_app.state.catalog_retriever = CatalogRetriever(fastapi_app.state.catalog_index)
     fastapi_app.state.context_extractor = ConversationContextExtractor(fastapi_app.state.catalog_index)
     fastapi_app.state.guardrail_service = GuardrailService()
+    responder = DeterministicResponder()
+    fastapi_app.state.llm_generator = _build_llm_generator(
+        settings, fastapi_app.state.catalog_index, responder
+    )
+    fastapi_app.state.assessment_agent = AssessmentAgent(
+        catalog=fastapi_app.state.catalog_index,
+        retriever=fastapi_app.state.catalog_retriever,
+        context_extractor=fastapi_app.state.context_extractor,
+        guardrail_service=fastapi_app.state.guardrail_service,
+        llm_generator=fastapi_app.state.llm_generator,
+    )
     logger.info("Catalog is ready with %s products", len(fastapi_app.state.catalog_index.products))
 
     try:
@@ -37,6 +60,8 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(RequestLoggingMiddleware)
 
 
 @app.get("/health")
@@ -55,27 +80,22 @@ def ensure_runtime_services(fastapi_app: FastAPI) -> None:
     fastapi_app.state.catalog_retriever = CatalogRetriever(fastapi_app.state.catalog_index)
     fastapi_app.state.context_extractor = ConversationContextExtractor(fastapi_app.state.catalog_index)
     fastapi_app.state.guardrail_service = GuardrailService()
+    responder = DeterministicResponder()
+    fastapi_app.state.llm_generator = _build_llm_generator(
+        settings, fastapi_app.state.catalog_index, responder
+    )
+    fastapi_app.state.assessment_agent = AssessmentAgent(
+        catalog=fastapi_app.state.catalog_index,
+        retriever=fastapi_app.state.catalog_retriever,
+        context_extractor=fastapi_app.state.context_extractor,
+        guardrail_service=fastapi_app.state.guardrail_service,
+        llm_generator=fastapi_app.state.llm_generator,
+    )
 
 
 async def run_chat_shell(request: ChatRequest) -> ChatResponse:
     ensure_runtime_services(app)
-    context = app.state.context_extractor.extract(request.messages)
-    guardrail_decision = app.state.guardrail_service.evaluate(context)
-    if not guardrail_decision.is_allowed:
-        return ChatResponse(
-            reply=guardrail_decision.reply or "I can only help with SHL assessment selection.",
-            recommendations=[],
-            end_of_conversation=False,
-        )
-
-    return ChatResponse(
-        reply=(
-            "I can help recommend SHL assessments. I need one more detail before "
-            "shortlisting: what role or job family are you hiring for?"
-        ),
-        recommendations=[],
-        end_of_conversation=False,
-    )
+    return await app.state.assessment_agent.chat(request)
 
 
 @app.post("/chat", response_model=ChatResponse)

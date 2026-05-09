@@ -11,9 +11,9 @@ class Settings(BaseSettings):
         alias="CATALOG_PATH",
     )
     groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
-    groq_model: str = Field(default="openai/gpt-oss-120b", alias="GROQ_MODEL")
+    groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
     groq_fallback_model: str = Field(
-        default="openai/gpt-oss-20b",
+        default="llama-3.1-8b-instant",
         alias="GROQ_FALLBACK_MODEL",
     )
     groq_fast_model: str = Field(

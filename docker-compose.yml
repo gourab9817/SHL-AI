@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  shl-api:
+    build: .
+    ports:
+      - "8000:8000"
+      - "8501:8501"
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      GROQ_FALLBACK_MODEL: ${GROQ_FALLBACK_MODEL:-llama-3.1-8b-instant}
+      GROQ_FAST_MODEL: ${GROQ_FAST_MODEL:-llama-3.1-8b-instant}
+      CATALOG_PATH: Data/shl_product_catalog.json
+      CHAT_TIMEOUT_SECONDS: 25
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    container_name: shl-recommender-app
+
+# Usage:
+# 1. Set GROQ_API_KEY: export GROQ_API_KEY=sk_...
+# 2. Build and start: docker-compose up -d
+# 3. Backend API: http://localhost:8000
+# 4. Frontend UI: http://localhost:8501
+# 5. Stop: docker-compose down
