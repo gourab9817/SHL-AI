@@ -27,6 +27,8 @@ def test_app_lifespan_loads_catalog_index() -> None:
             [Message(role="user", content="I need an assessment")]
         )
         assert context.actions.is_vague_request is True
+        decision = lifespan_client.app.state.guardrail_service.evaluate(context)
+        assert decision.is_allowed is True
 
 
 def test_chat_returns_required_schema_for_valid_request() -> None:
@@ -40,6 +42,26 @@ def test_chat_returns_required_schema_for_valid_request() -> None:
     assert set(body) == {"reply", "recommendations", "end_of_conversation"}
     assert isinstance(body["reply"], str)
     assert body["reply"]
+    assert body["recommendations"] == []
+    assert body["end_of_conversation"] is False
+
+
+def test_chat_refuses_legal_advice_with_empty_recommendations() -> None:
+    response = client.post(
+        "/chat",
+        json={
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Are we legally required under HIPAA to test all staff?",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "legal" in body["reply"].lower()
     assert body["recommendations"] == []
     assert body["end_of_conversation"] is False
 
