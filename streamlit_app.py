@@ -1,4 +1,4 @@
-"""Streamlit frontend for SHL AI Conversational Recommender."""
+"""Streamlit frontend for SHL AI Conversational Recommender - ChatGPT-style UI."""
 
 import json
 import requests
@@ -13,52 +13,143 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# Custom CSS
+# Modern minimal CSS
 st.markdown("""
 <style>
-    .recommendation-box {
-        background-color: #f0f2f6;
-        padding: 15px;
-        border-radius: 8px;
-        margin: 10px 0;
-        border-left: 4px solid #1f77b4;
+    * { margin: 0; padding: 0; }
+
+    body {
+        background-color: #ffffff;
     }
-    .rec-name {
-        font-weight: bold;
-        color: #1f77b4;
+
+    .stChatMessage {
+        padding: 12px 0;
     }
-    .rec-type {
-        font-size: 0.85em;
-        color: #666;
+
+    .user-msg {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 12px 16px;
+        border-radius: 16px;
+        border-bottom-right-radius: 4px;
+        margin-left: auto;
+        margin-right: 0;
+        max-width: 70%;
+        word-wrap: break-word;
     }
-    .health-check {
-        padding: 10px;
-        border-radius: 8px;
-        text-align: center;
-        margin: 10px 0;
+
+    .assistant-msg {
+        background: #f0f0f0;
+        color: #333;
+        padding: 12px 16px;
+        border-radius: 16px;
+        border-bottom-left-radius: 4px;
+        margin-right: auto;
+        margin-left: 0;
+        max-width: 70%;
+        word-wrap: break-word;
     }
-    .health-ok {
-        background-color: #d4edda;
-        color: #155724;
-        border: 1px solid #c3e6cb;
-    }
-    .health-error {
-        background-color: #f8d7da;
-        color: #721c24;
-        border: 1px solid #f5c6cb;
-    }
-    .message-box {
-        padding: 12px;
+
+    .rec-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 14px;
         border-radius: 8px;
         margin: 8px 0;
+        border-left: 4px solid #667eea;
     }
-    .user-message {
-        background-color: #e3f2fd;
+
+    .rec-name {
+        font-weight: 600;
+        font-size: 0.95em;
+        margin-bottom: 4px;
+    }
+
+    .rec-type {
+        font-size: 0.85em;
+        opacity: 0.9;
+        margin-bottom: 8px;
+    }
+
+    .rec-link {
+        color: white;
+        text-decoration: none;
+        font-size: 0.9em;
+        padding: 4px 8px;
+        background: rgba(255,255,255,0.2);
+        border-radius: 4px;
+        display: inline-block;
+        transition: all 0.2s;
+    }
+
+    .rec-link:hover {
+        background: rgba(255,255,255,0.3);
+    }
+
+    .input-container {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: white;
+        border-top: 1px solid #e0e0e0;
+        padding: 16px;
+        z-index: 100;
+    }
+
+    .chat-container {
+        margin-bottom: 100px;
+        padding: 24px;
+    }
+
+    h1, h2, h3 {
+        color: #333;
+    }
+
+    .header {
+        padding: 24px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-radius: 0;
+        margin-bottom: 0;
+    }
+
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        padding: 10px 24px;
+        border-radius: 8px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .stButton > button:hover {
+        opacity: 0.9;
+        transform: translateY(-2px);
+    }
+
+    .clear-btn {
+        background: #ff6b6b !important;
+    }
+
+    .info-badge {
+        background: #e3f2fd;
+        color: #1976d2;
+        padding: 12px 16px;
+        border-radius: 8px;
         border-left: 4px solid #1976d2;
+        margin: 12px 0;
     }
-    .assistant-message {
-        background-color: #f5f5f5;
-        border-left: 4px solid #757575;
+
+    .success-badge {
+        background: #d4edda;
+        color: #155724;
+        padding: 12px 16px;
+        border-radius: 8px;
+        border-left: 4px solid #28a745;
+        margin: 12px 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -71,188 +162,153 @@ CHAT_ENDPOINT = f"{API_BASE_URL}/chat"
 # Initialize session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
-if "conversation_active" not in st.session_state:
-    st.session_state.conversation_active = False
-if "health_status" not in st.session_state:
-    st.session_state.health_status = None
-
 
 def check_health():
     """Check API health."""
     try:
         response = requests.get(HEALTH_ENDPOINT, timeout=5)
         return response.status_code == 200
-    except Exception as e:
-        st.error(f"Health check failed: {str(e)}")
+    except:
         return False
-
 
 def send_message(user_input):
     """Send message to API and get response."""
     try:
-        # Add user message to history
         st.session_state.messages.append({"role": "user", "content": user_input})
 
-        # Prepare request
-        payload = {
-            "messages": [
-                {"role": msg["role"], "content": msg["content"]}
-                for msg in st.session_state.messages
-            ]
-        }
-
-        # Call API
+        payload = {"messages": st.session_state.messages}
         response = requests.post(CHAT_ENDPOINT, json=payload, timeout=30)
 
         if response.status_code == 200:
             data = response.json()
-
-            # Add assistant message to history
-            st.session_state.messages.append(
-                {"role": "assistant", "content": data["reply"]}
-            )
-
+            st.session_state.messages.append({"role": "assistant", "content": data["reply"]})
             return data
         else:
-            st.error(f"API Error: {response.status_code}")
+            st.session_state.messages.pop()
             return None
-
     except requests.exceptions.Timeout:
-        st.error("Request timeout (>30s). Please try again.")
-        st.session_state.messages.pop()  # Remove failed user message
+        st.session_state.messages.pop()
+        st.error("Request timeout. Please try again.")
         return None
     except Exception as e:
+        st.session_state.messages.pop()
         st.error(f"Error: {str(e)}")
-        st.session_state.messages.pop()  # Remove failed user message
         return None
 
-
 # Header
-st.markdown("# 🎯 SHL Assessment Recommender")
-st.markdown("Find the right SHL assessments for your hiring needs")
+st.markdown("""
+<div class="header" style="margin: -1rem -1rem 1rem -1rem; padding: 2rem;">
+    <h1 style="margin-bottom: 0.5rem;">🎯 SHL Assessment Recommender</h1>
+    <p style="margin: 0; opacity: 0.95;">Find the perfect assessments for your hiring needs</p>
+</div>
+""", unsafe_allow_html=True)
 
-# Sidebar with health check
-with st.sidebar:
-    st.markdown("## Status")
-
-    # Health check button
-    if st.button("🔄 Check Health", key="health_btn"):
-        st.session_state.health_status = check_health()
-
-    # Display health status
-    if st.session_state.health_status is not None:
-        if st.session_state.health_status:
-            st.markdown(
-                '<div class="health-check health-ok">✅ API is healthy</div>',
-                unsafe_allow_html=True,
-            )
+# Status row
+col1, col2, col3 = st.columns([1, 1, 1])
+with col1:
+    if st.button("🔄 Check Health", use_container_width=True):
+        status = check_health()
+        if status:
+            st.success("✅ API is healthy")
         else:
-            st.markdown(
-                '<div class="health-check health-error">❌ API is unavailable</div>',
-                unsafe_allow_html=True,
-            )
+            st.error("❌ API unavailable")
 
-    st.divider()
-
-    # Clear conversation button
-    if st.button("🗑️ Clear Conversation", key="clear_btn"):
+with col2:
+    if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.messages = []
-        st.session_state.conversation_active = False
         st.rerun()
 
-    st.divider()
-    st.markdown("**About**")
-    st.markdown(
-        """
-    This tool helps you select the right SHL assessments for:
-    - Leadership roles
-    - Technical positions
-    - Sales teams
-    - Admin roles
-    - Graduate programs
-    - And more...
-    """
-    )
+with col3:
+    st.markdown("[📖 API Docs](http://localhost:8000/docs)", unsafe_allow_html=True)
 
-# Main content area
-st.markdown("## Chat")
-
-# Display conversation history
-if st.session_state.messages:
-    for message in st.session_state.messages:
-        if message["role"] == "user":
-            st.markdown(
-                f'<div class="message-box user-message"><b>You:</b> {message["content"]}</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                f'<div class="message-box assistant-message"><b>Assistant:</b> {message["content"]}</div>',
-                unsafe_allow_html=True,
-            )
-
-# Input area
 st.divider()
 
-# User input
-col1, col2 = st.columns([0.9, 0.1])
+# Chat display
+chat_container = st.container()
+
+with chat_container:
+    if not st.session_state.messages:
+        st.markdown("""
+        <div style='text-align: center; padding: 60px 20px; color: #999;'>
+            <p style='font-size: 1.2em; margin-bottom: 10px;'>No conversation yet</p>
+            <p>Start by describing your hiring need below</p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        for message in st.session_state.messages:
+            if message["role"] == "user":
+                col1, col2 = st.columns([0.25, 0.75])
+                with col2:
+                    st.markdown(f"""
+                    <div class="user-msg">{message["content"]}</div>
+                    """, unsafe_allow_html=True)
+            else:
+                col1, col2 = st.columns([0.75, 0.25])
+                with col1:
+                    st.markdown(f"""
+                    <div class="assistant-msg">{message["content"]}</div>
+                    """, unsafe_allow_html=True)
+
+st.divider()
+
+# Input area
+st.markdown("### Your message")
+col1, col2 = st.columns([0.85, 0.15])
 
 with col1:
     user_input = st.text_input(
-        "Enter your assessment need:",
-        placeholder="e.g., Senior Java engineer, graduate trainee, contact center agent...",
-        key="user_input",
+        "Type here...",
+        placeholder="e.g., Senior Java developer, graduate trainee, sales manager...",
+        label_visibility="collapsed",
+        key="input_field"
     )
 
 with col2:
-    send_button = st.button("Send", key="send_btn", use_container_width=True)
+    send_clicked = st.button("Send", use_container_width=True)
 
-# Process user input
-if send_button and user_input:
+if send_clicked and user_input.strip():
     response_data = send_message(user_input)
 
     if response_data:
-        # Display recommendations if any
-        if response_data.get("recommendations"):
-            st.markdown("### 📋 Recommended Assessments")
+        with chat_container:
+            st.divider()
 
-            for rec in response_data["recommendations"]:
-                with st.container():
-                    col1, col2 = st.columns([0.7, 0.3])
-                    with col1:
-                        st.markdown(
-                            f"""
-                        <div class="recommendation-box">
-                            <div class="rec-name">✓ {rec['name']}</div>
-                            <div class="rec-type">Type: {rec['test_type']}</div>
-                            <a href="{rec['url']}" target="_blank">View on SHL →</a>
+            # Display recommendations
+            if response_data.get("recommendations"):
+                st.markdown("### 📊 Recommended Assessments")
+
+                cols = st.columns(1)
+                with cols[0]:
+                    for i, rec in enumerate(response_data["recommendations"], 1):
+                        st.markdown(f"""
+                        <div class="rec-card">
+                            <div class="rec-name">{i}. {rec['name']}</div>
+                            <div class="rec-type">Type: <strong>{rec['test_type']}</strong></div>
+                            <a href="{rec['url']}" target="_blank" class="rec-link">View on SHL →</a>
                         </div>
-                        """,
-                            unsafe_allow_html=True,
-                        )
+                        """, unsafe_allow_html=True)
 
-            # Show end of conversation status
+            # Status
             if response_data.get("end_of_conversation"):
-                st.success(
-                    "✅ **Conversation Complete** - Your assessment battery is locked in!"
-                )
+                st.markdown("""
+                <div class="success-badge">
+                    ✅ <strong>Assessment Battery Locked</strong><br>
+                    You can review and finalize your selection.
+                </div>
+                """, unsafe_allow_html=True)
             else:
-                st.info("💡 You can refine this list by asking to add, drop, or modify items.")
+                st.markdown("""
+                <div class="info-badge">
+                    💡 <strong>Refine your selection</strong><br>
+                    Ask to add, remove, or modify any assessments.
+                </div>
+                """, unsafe_allow_html=True)
 
-        else:
-            st.info("No recommendations at this time. The assistant may be asking for clarification.")
-
-        # Rerun to show updated conversation
         st.rerun()
 
 # Footer
-st.divider()
-st.markdown(
-    """
-<div style='text-align: center; color: #666; font-size: 0.9em;'>
-    <p>🚀 SHL AI Recommender | Powered by FastAPI + Streamlit</p>
-    <p>For more information, visit the <a href='http://localhost:8000/docs'>API Docs</a></p>
+st.markdown("""
+<div style='text-align: center; color: #999; font-size: 0.85em; margin-top: 60px; padding: 20px;'>
+    <p>🚀 SHL Assessment Recommender | Powered by FastAPI + Streamlit</p>
 </div>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
