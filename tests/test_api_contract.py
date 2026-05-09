@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.schemas import Message
 
 
 client = TestClient(app)
@@ -22,6 +23,10 @@ def test_app_lifespan_loads_catalog_index() -> None:
         assert lifespan_client.app.state.catalog_retriever.search("personality")[0].product.name == (
             "Occupational Personality Questionnaire OPQ32r"
         )
+        context = lifespan_client.app.state.context_extractor.extract(
+            [Message(role="user", content="I need an assessment")]
+        )
+        assert context.actions.is_vague_request is True
 
 
 def test_chat_returns_required_schema_for_valid_request() -> None:

@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from app.catalog import load_catalog
 from app.config import get_settings
+from app.conversation import ConversationContextExtractor
 from app.logging_config import configure_logging
 from app.retrieval import CatalogRetriever
 from app.schemas import ChatRequest, ChatResponse
@@ -20,6 +21,7 @@ async def lifespan(fastapi_app: FastAPI):
     logger.info("Starting SHL recommender API")
     fastapi_app.state.catalog_index = load_catalog(settings.catalog_path)
     fastapi_app.state.catalog_retriever = CatalogRetriever(fastapi_app.state.catalog_index)
+    fastapi_app.state.context_extractor = ConversationContextExtractor(fastapi_app.state.catalog_index)
     logger.info("Catalog is ready with %s products", len(fastapi_app.state.catalog_index.products))
 
     try:
