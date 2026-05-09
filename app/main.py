@@ -1,14 +1,35 @@
 import asyncio
+import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.catalog import load_catalog
 from app.config import get_settings
+from app.logging_config import configure_logging
 from app.schemas import ChatRequest, ChatResponse
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(fastapi_app: FastAPI):
+    configure_logging()
+    settings = get_settings()
+    logger.info("Starting SHL recommender API")
+    fastapi_app.state.catalog_index = load_catalog(settings.catalog_path)
+    logger.info("Catalog is ready with %s products", len(fastapi_app.state.catalog_index.products))
+
+    try:
+        yield
+    finally:
+        logger.info("Stopping SHL recommender API")
 
 
 app = FastAPI(
     title="SHL Conversational Assessment Recommender",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 
@@ -41,6 +62,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             timeout=settings.chat_timeout_seconds,
         )
     except TimeoutError:
+        logger.warning("Chat request exceeded %s second timeout", settings.chat_timeout_seconds)
         return ChatResponse(
             reply=(
                 "I could not complete the SHL assessment recommendation within the "

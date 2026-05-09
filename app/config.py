@@ -1,10 +1,15 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    catalog_path: Path = Field(
+        default=Path("Data/shl_product_catalog.json"),
+        alias="CATALOG_PATH",
+    )
     groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
     groq_model: str = Field(default="openai/gpt-oss-120b", alias="GROQ_MODEL")
     groq_fallback_model: str = Field(

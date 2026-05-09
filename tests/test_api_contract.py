@@ -13,6 +13,14 @@ def test_health_returns_ok() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_app_lifespan_loads_catalog_index() -> None:
+    with TestClient(app) as lifespan_client:
+        response = lifespan_client.get("/health")
+
+        assert response.status_code == 200
+        assert len(lifespan_client.app.state.catalog_index.products) == 377
+
+
 def test_chat_returns_required_schema_for_valid_request() -> None:
     response = client.post(
         "/chat",
