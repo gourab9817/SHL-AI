@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: shl-ai-recommender
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: GROQ_FALLBACK_MODEL
+        value: openai/gpt-oss-20b
+      - key: GROQ_FAST_MODEL
+        value: openai/gpt-oss-20b
+      - key: CATALOG_PATH
+        value: Data/shl_product_catalog.json
+      - key: CHAT_TIMEOUT_SECONDS
+        value: "25"
+      - key: WEB_CONCURRENCY
+        value: "1"

@@ -4,6 +4,64 @@ This document describes how to build, test, and deploy the SHL AI Conversational
 
 ## Quick Start
 
+### Render Free Deployment
+
+Recommended for assignment submission. Render will expose the FastAPI backend
+publicly, including:
+
+- `GET /health`
+- `POST /chat`
+- `POST /v2/chat1`
+
+1. Push this repository to GitHub.
+
+2. Go to Render:
+   https://render.com
+
+3. Create a new **Web Service** from your GitHub repository.
+
+4. Use these settings:
+   ```text
+   Runtime: Docker
+   Plan: Free
+   Health Check Path: /health
+   ```
+
+   If Render asks for a start command, leave it blank for Docker. The Dockerfile
+   runs `scripts/start_production.sh`.
+
+5. Add environment variables:
+   ```env
+   GROQ_API_KEY=your_groq_key
+   GROQ_MODEL=openai/gpt-oss-120b
+   GROQ_FALLBACK_MODEL=openai/gpt-oss-20b
+   GROQ_FAST_MODEL=openai/gpt-oss-20b
+   CATALOG_PATH=Data/shl_product_catalog.json
+   CHAT_TIMEOUT_SECONDS=25
+   WEB_CONCURRENCY=1
+   ```
+
+6. Deploy and test:
+   ```bash
+   curl https://your-service.onrender.com/health
+   ```
+
+   Expected:
+   ```json
+   {"status":"ok"}
+   ```
+
+7. Submit these URLs for evaluation:
+   ```text
+   https://your-service.onrender.com/health
+   https://your-service.onrender.com/chat
+   ```
+
+Notes:
+- `/chat` is direct-answer mode for automated evaluation.
+- `/v2/chat1` keeps the richer conversational behavior used by the Streamlit UI.
+- Render free services may sleep after inactivity, so the first request can be slow.
+
 ### Local Development
 
 1. **Install dependencies:**
@@ -67,11 +125,13 @@ Set these in your deployment environment:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GROQ_API_KEY` | (required) | Your Groq API key |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Primary reasoning model |
-| `GROQ_FALLBACK_MODEL` | `llama-3.1-8b-instant` | Fast fallback model |
-| `GROQ_FAST_MODEL` | `llama-3.1-8b-instant` | Quick classifier model |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Primary reasoning model |
+| `GROQ_FALLBACK_MODEL` | `openai/gpt-oss-20b` | Fast fallback model |
+| `GROQ_FAST_MODEL` | `openai/gpt-oss-20b` | Quick classifier model |
 | `CATALOG_PATH` | `Data/shl_product_catalog.json` | Path to catalog JSON |
 | `CHAT_TIMEOUT_SECONDS` | `25` | Request timeout (must be < 30) |
+| `PORT` | `8000` | HTTP port; Render sets this automatically |
+| `WEB_CONCURRENCY` | `1` | Uvicorn worker count |
 
 ### Startup
 
