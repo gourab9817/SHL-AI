@@ -19,3 +19,12 @@ services:
         value: "25"
       - key: WEB_CONCURRENCY
         value: "1"
+
+  - type: web
+    name: shl-ai-frontend
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile.frontend
+    envVars:
+      - key: API_BASE_URL
+        value: https://shl-ai-1k6f.onrender.com

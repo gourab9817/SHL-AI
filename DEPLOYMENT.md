@@ -62,6 +62,38 @@ Notes:
 - `/v2/chat1` keeps the richer conversational behavior used by the Streamlit UI.
 - Render free services may sleep after inactivity, so the first request can be slow.
 
+### Render Frontend Deployment
+
+The Streamlit frontend can also be deployed on Render from the same repository.
+Use a second Render web service so backend and frontend each get their own public
+URL.
+
+1. Create another **Web Service** from the same GitHub repository.
+
+2. Use these settings:
+   ```text
+   Runtime: Docker
+   Dockerfile Path: ./Dockerfile.frontend
+   Plan: Free
+   ```
+
+3. Add this environment variable:
+   ```env
+   API_BASE_URL=https://shl-ai-1k6f.onrender.com
+   ```
+
+   If your backend Render URL is different, use that backend URL instead.
+
+4. Deploy. The frontend service will call:
+   ```text
+   https://your-backend.onrender.com/v2/chat1
+   ```
+
+The `render.yaml` blueprint includes both services:
+
+- `shl-ai-recommender`: FastAPI backend
+- `shl-ai-frontend`: Streamlit frontend
+
 ### Local Development
 
 1. **Install dependencies:**

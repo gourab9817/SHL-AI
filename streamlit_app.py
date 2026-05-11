@@ -1,5 +1,7 @@
 """Streamlit frontend for SHL AI Conversational Recommender."""
 
+import os
+
 import requests
 import streamlit as st
 
@@ -185,7 +187,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000").rstrip("/")
 CHAT_ENDPOINT = f"{API_BASE_URL}/v2/chat1"
 
 
