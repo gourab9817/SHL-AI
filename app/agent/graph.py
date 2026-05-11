@@ -27,6 +27,7 @@ class AssessmentAgent:
         context_extractor: ConversationContextExtractor,
         guardrail_service: GuardrailService,
         llm_generator: LLMGenerator | None = None,
+        allow_clarification: bool = True,
     ) -> None:
         self.catalog = catalog
         self.retriever = retriever
@@ -36,10 +37,12 @@ class AssessmentAgent:
         self.responder = DeterministicResponder()
         self.llm_generator = llm_generator
         self.verifier = ResponseVerifier(catalog)
+        self.allow_clarification = allow_clarification
         self._graph = self._build_graph()
         logger.info(
-            "Assessment agent graph initialized llm=%s",
+            "Assessment agent graph initialized llm=%s clarify=%s",
             "enabled" if llm_generator is not None else "disabled (deterministic fallback)",
+            "enabled" if allow_clarification else "direct-answer mode",
         )
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
@@ -148,7 +151,18 @@ class AssessmentAgent:
 
     async def _respond_clarify(self, state: AgentState) -> AgentState:
         context = state["context"]
-        if self.llm_generator is not None:
+        actions = context.actions
+        if not self.allow_clarification:
+            reply = self.responder.direct_guidance(context)
+        # Greetings and identity questions get deterministic responses — no LLM needed.
+        elif (
+            actions.is_greeting
+            or actions.is_identity_question
+            or actions.is_vague_request
+            or self.responder.needs_skill_clarification(context)
+        ):
+            reply = self.responder.clarify(context)
+        elif self.llm_generator is not None:
             reply = await self.llm_generator.generate_clarify_reply(context)
         else:
             reply = self.responder.clarify(context)
@@ -220,23 +234,31 @@ class AssessmentAgent:
     def _determine_intent(self, context: ConversationContext) -> AgentIntent:
         actions = context.actions
         constraints = context.constraints
-        if actions.is_vague_request:
+        has_context = self._has_context(context)
+        has_actionable_context = self.responder.has_actionable_recommendation_context(context)
+
+        # Greetings and meta-questions about the agent/SHL always clarify — never recommend.
+        if actions.is_greeting or actions.is_identity_question:
             return "clarify"
 
-        has_context = bool(
-            constraints.role_text
-            or constraints.skills
-            or constraints.assessment_types
-            or actions.has_job_description
-            or context.previous_recommendations
-        )
-
-        if actions.confirms_final and context.previous_recommendations:
+        if (actions.confirms_final or actions.requests_final_list) and context.previous_recommendations:
             return "finalize"
         if actions.asks_comparison:
             return "compare"
         if actions.requested_additions or actions.requested_removals or actions.requested_replacements or actions.wants_shorter:
             return "refine"
+
+        if not self.allow_clarification:
+            if has_actionable_context:
+                return "recommend"
+            return "clarify"
+
+        if actions.is_vague_request:
+            return "clarify"
+
+        if self.responder.needs_skill_clarification(context):
+            return "clarify"
+
         if context.remaining_turn_budget <= 2 and has_context:
             return "recommend"
         if actions.asks_recommendation and not has_context:
@@ -244,3 +266,15 @@ class AssessmentAgent:
         if has_context:
             return "recommend"
         return "clarify"
+
+    def _has_context(self, context: ConversationContext) -> bool:
+        constraints = context.constraints
+        actions = context.actions
+        return bool(
+            constraints.role_text
+            or constraints.skills
+            or constraints.seniority
+            or constraints.assessment_types
+            or actions.has_job_description
+            or context.previous_recommendations
+        )

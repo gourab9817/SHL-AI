@@ -10,6 +10,51 @@ from app.schemas import Message
 logger = logging.getLogger(__name__)
 
 
+GREETING_PATTERNS = (
+    "^hi$",
+    "^hii$",
+    "^hello$",
+    "^hey$",
+    "^howdy$",
+    "^greetings$",
+    "^hi there$",
+    "^hello there$",
+    "^good morning$",
+    "^good afternoon$",
+    "^good evening$",
+)
+
+# Matched anywhere in the message
+IDENTITY_QUESTION_PATTERNS = (
+    "who are you",
+    "what are you",
+    "what do you do",
+    "what can you do",
+    "tell me about yourself",
+    "introduce yourself",
+    "what is your purpose",
+    "what are you for",
+    "how can you help",
+    "what can you help",
+    "who is shl",
+    "what is shl",
+    "what does shl do",
+    "explain yourself",
+    "what is this",
+    "what is this tool",
+    "what are your capabilities",
+)
+
+# Only matched when the message STARTS WITH these (avoids false-positives like
+# "developer who is senior" matching "who is")
+IDENTITY_STARTSWITH_PATTERNS = (
+    "who is ",
+    "who was ",
+    "who are ",
+    "what is a ",
+    "tell me about ",
+)
+
 CONFIRMATION_PATTERNS = (
     "confirmed",
     "confirm",
@@ -39,6 +84,17 @@ COMPARISON_PATTERNS = (
     "compare",
     "versus",
     " vs ",
+)
+
+FINAL_LIST_PATTERNS = (
+    "final list",
+    "final shortlist",
+    "give me final list",
+    "give me the final list",
+    "show final list",
+    "show me the final list",
+    "share final list",
+    "what is the final list",
 )
 
 NO_PREFERENCE_PATTERNS = (
@@ -173,10 +229,13 @@ class ConversationContextExtractor:
         normalized_full_text = normalize_text(full_user_text)
         normalized_latest = normalize_text(latest_user_message)
 
+        # role_text and seniority use ONLY the latest message so that switching roles
+        # (e.g. "CISO" → "office boy") does not bleed the old role into the new query.
+        # language/region/use_case accumulate because users clarify these progressively.
         return ConversationConstraints(
-            role_text=self._extract_role_text(full_user_text),
-            seniority=self._latest_pattern_value(normalized_full_text, SENIORITY_PATTERNS),
-            skills=self._collect_pattern_values(normalized_full_text, SKILL_PATTERNS),
+            role_text=self._extract_role_text(latest_user_message),
+            seniority=self._latest_pattern_value(normalized_latest, SENIORITY_PATTERNS),
+            skills=self._collect_pattern_values(normalized_latest, SKILL_PATTERNS),
             language=self._latest_pattern_value(normalized_full_text, LANGUAGE_PATTERNS),
             region_or_accent=self._latest_pattern_value(normalized_full_text, REGION_OR_ACCENT_PATTERNS),
             use_case=self._latest_pattern_value(normalized_full_text, USE_CASE_PATTERNS),
@@ -189,23 +248,79 @@ class ConversationContextExtractor:
             requested_additions=self._extract_requested_items(latest_user_message, ("add", "include", "also add")),
             requested_removals=self._extract_requested_items(latest_user_message, ("drop", "remove", "exclude", "skip")),
             requested_replacements=self._extract_requested_items(latest_user_message, ("replace", "swap")),
-            wants_shorter=any(term in normalized_latest for term in ("shorter", "quick", "faster", "takes too long")),
-            says_no_preference=any(pattern in normalized_latest for pattern in NO_PREFERENCE_PATTERNS),
-            confirms_final=any(pattern in normalized_latest for pattern in CONFIRMATION_PATTERNS),
-            asks_comparison=any(pattern in normalized_latest for pattern in COMPARISON_PATTERNS),
-            asks_recommendation=any(pattern in normalized_latest for pattern in RECOMMENDATION_PATTERNS),
+            wants_shorter=self._contains_any_pattern(
+                normalized_latest, ("shorter", "quick", "faster", "takes too long")
+            ),
+            says_no_preference=self._contains_any_pattern(normalized_latest, NO_PREFERENCE_PATTERNS),
+            confirms_final=self._contains_any_pattern(normalized_latest, CONFIRMATION_PATTERNS),
+            requests_final_list=self._contains_any_pattern(normalized_latest, FINAL_LIST_PATTERNS),
+            asks_comparison=self._contains_any_pattern(normalized_latest, COMPARISON_PATTERNS),
+            asks_recommendation=self._contains_any_pattern(
+                normalized_latest, RECOMMENDATION_PATTERNS
+            ),
             is_vague_request=self._is_vague_request(normalized_latest),
             has_job_description=self._has_job_description(latest_user_message, normalized_latest),
+            is_greeting=self._is_greeting(normalized_latest),
+            is_identity_question=self._is_identity_question(normalized_latest),
         )
 
+    # Expanded role markers — must match at least one for a line to count as job context.
+    _ROLE_MARKERS = (
+        # Explicit hiring intent
+        "hiring", "screening", "recruit", "candidate", "candidates",
+        "assess", "assessment", "position", "vacancy", "opening", "role",
+        # Seniority keywords
+        "senior", "junior", "graduate", "trainee", "entry-level", "entry level",
+        "mid-level", "mid level", "executive", "lead", "principal",
+        # C-suite / leadership titles
+        "ceo", "cto", "cfo", "coo", "cpo", "chro", "ciso",
+        "vp ", "svp", "evp", "president", "vice president",
+        "managing director", "general manager", "head of",
+        # Job function / title words
+        "engineer", "developer", "analyst", "designer", "scientist",
+        "manager", "director", "coordinator", "administrator", "specialist",
+        "consultant", "architect", "technician", "representative", "associate",
+        "officer", "operator", "staff", "intern", "assistant",
+        # Domain keywords
+        "software", "data", "sales", "customer", "finance", "accounting",
+        "marketing", "operations", "logistics", "supply chain", "legal",
+        "hr", "human resources", "security", "devops", "cloud",
+        # Tech skills — common enough to signal job context
+        "java", "python", "sql", "aws", "react", "angular", "docker",
+        "javascript", "typescript", "kubernetes", "linux", "rust",
+        "go", "golang", "terraform", "azure", "gcp", "cloud", "devops",
+        # Frontline / admin / clerical roles
+        "admin", "administrative", "clerical", "clerk", "receptionist",
+        "office", "support", "helpdesk", "assistant",
+    )
+
     def _extract_role_text(self, full_user_text: str) -> str | None:
+        """Return the most recent line that contains at least one role/hiring keyword.
+
+        Returns None when no such line exists — callers must not treat a None
+        role_text as evidence of hiring context.
+        """
         lines = [line.strip(" >\"") for line in full_user_text.splitlines() if line.strip()]
-        role_markers = ("hiring", "screening", "role", "engineer", "analyst", "assistant", "operator", "staff")
         for line in reversed(lines):
             normalized_line = normalize_text(line)
-            if any(marker in normalized_line for marker in role_markers):
+            if self._line_has_role_marker(normalized_line):
                 return line[:500]
-        return lines[-1][:500] if lines else None
+        # No fallback — returning None signals "no job context detected".
+        return None
+
+    def _line_has_role_marker(self, normalized_line: str) -> bool:
+        tokens = set(tokenize(normalized_line, keep_stopwords=True))
+        if not tokens:
+            return False
+
+        for marker in self._ROLE_MARKERS:
+            normalized_marker = normalize_text(marker)
+            if " " in normalized_marker:
+                if normalized_marker in normalized_line:
+                    return True
+            elif normalized_marker in tokens:
+                return True
+        return False
 
     def _latest_pattern_value(self, normalized_text: str, patterns: tuple[tuple[str, tuple[str, ...]], ...]) -> str | None:
         latest_match: tuple[int, str] | None = None
@@ -235,7 +350,7 @@ class ConversationContextExtractor:
 
     def _extract_requested_items(self, latest_user_message: str, action_words: tuple[str, ...]) -> tuple[str, ...]:
         normalized_latest = normalize_text(latest_user_message)
-        if not any(action_word in normalized_latest for action_word in action_words):
+        if not self._contains_any_pattern(normalized_latest, action_words):
             return ()
 
         product_names = self._extract_products_from_action_clause(normalized_latest, action_words)
@@ -274,10 +389,49 @@ class ConversationContextExtractor:
 
         return tuple(product_names)
 
+    def _contains_any_pattern(self, normalized_text: str, patterns: tuple[str, ...]) -> bool:
+        return any(normalize_text(pattern) in normalized_text for pattern in patterns)
+
+    def _is_greeting(self, normalized_latest: str) -> bool:
+        """True when the entire message is a greeting with no job context."""
+        import re as _re
+        for pattern in GREETING_PATTERNS:
+            if _re.fullmatch(normalize_text(pattern), normalized_latest.strip()):
+                return True
+        return False
+
+    def _is_identity_question(self, normalized_latest: str) -> bool:
+        """True when the user is asking who/what the agent is, about SHL, or about
+        an external person/entity unrelated to hiring."""
+        stripped = normalized_latest.strip()
+        # Anywhere-match patterns
+        if any(normalize_text(p) in normalized_latest for p in IDENTITY_QUESTION_PATTERNS):
+            return True
+        # Start-of-message patterns (avoids false positives inside longer sentences)
+        if any(stripped.startswith(normalize_text(p)) for p in IDENTITY_STARTSWITH_PATTERNS):
+            return True
+        return False
+
+    # Tokens that carry no hiring signal on their own
+    _MEANINGLESS_TOKENS = frozenset({
+        "what", "how", "why", "where", "when", "ok", "okay", "sure",
+        "yes", "no", "maybe", "hmm", "hm", "um", "ah", "oh",
+        "next", "more", "other", "another", "else",
+    })
+
     def _is_vague_request(self, normalized_latest: str) -> bool:
         tokens = set(tokenize(normalized_latest))
         if not tokens:
             return True
+
+        # Pure punctuation or single-char input ("?", ".", "!")
+        if len(normalized_latest.strip()) <= 2:
+            return True
+
+        # Only meaningless filler words and no hiring signal
+        if tokens and tokens.issubset(self._MEANINGLESS_TOKENS):
+            return True
+
         vague_tokens = {"assessment", "assessments", "solution", "solutions", "test", "tests"}
         return bool(tokens & vague_tokens) and len(tokens - vague_tokens) <= 2
 

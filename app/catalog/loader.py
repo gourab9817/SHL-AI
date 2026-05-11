@@ -3,6 +3,7 @@ import logging
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from pydantic import ValidationError
 
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_CATALOG_PATH = Path("Data/shl_product_catalog.json")
+SUPPORTED_CATALOG_SUFFIXES = (".json", ".txt")
 
 KEY_TO_TEST_TYPE_CODE = {
     "Ability & Aptitude": "A",
@@ -30,26 +32,53 @@ class CatalogLoadError(RuntimeError):
 
 
 def load_catalog(path: str | Path = DEFAULT_CATALOG_PATH) -> CatalogIndex:
-    catalog_path = Path(path)
-    logger.info("Loading SHL product catalog from %s", catalog_path)
+    requested_path = Path(path)
+    attempted_paths: list[Path] = []
+    errors: list[str] = []
 
-    if not catalog_path.exists():
-        logger.error("Catalog file does not exist: %s", catalog_path)
-        raise CatalogLoadError(f"Catalog file does not exist: {catalog_path}")
+    for catalog_path in _candidate_catalog_paths(requested_path):
+        if catalog_path in attempted_paths:
+            continue
+        attempted_paths.append(catalog_path)
 
-    raw_text = catalog_path.read_text(encoding="utf-8")
-    documents = _decode_concatenated_json_arrays(raw_text)
-    raw_items = _flatten_catalog_documents(documents)
-    products = _deduplicate_products(raw_items)
-    index = CatalogIndex.from_products(products)
+        logger.info("Loading SHL product catalog from %s", catalog_path)
+        if not catalog_path.exists():
+            errors.append(f"missing: {catalog_path}")
+            continue
 
-    logger.info(
-        "Loaded SHL catalog: %s raw rows, %s unique products, %s whitelisted URLs",
-        len(raw_items),
-        len(index.products),
-        len(index.url_whitelist),
+        try:
+            raw_text = catalog_path.read_text(encoding="utf-8")
+            documents = _decode_concatenated_json_arrays(raw_text)
+            raw_items = _flatten_catalog_documents(documents)
+            products = _deduplicate_products(raw_items)
+            index = CatalogIndex.from_products(products)
+            logger.info(
+                "Loaded SHL catalog: source=%s raw rows=%s unique products=%s whitelisted URLs=%s",
+                catalog_path,
+                len(raw_items),
+                len(index.products),
+                len(index.url_whitelist),
+            )
+            return index
+        except (OSError, CatalogLoadError) as exc:
+            logger.warning("Catalog load attempt failed for %s: %s", catalog_path, exc)
+            errors.append(f"{catalog_path}: {exc}")
+
+    logger.error("All catalog load attempts failed for requested path %s", requested_path)
+    raise CatalogLoadError(
+        f"Unable to load catalog from {requested_path}. Attempts: {'; '.join(errors)}"
     )
-    return index
+
+
+def _candidate_catalog_paths(path: Path) -> list[Path]:
+    candidates = [path]
+    if path.suffix in SUPPORTED_CATALOG_SUFFIXES:
+        for suffix in SUPPORTED_CATALOG_SUFFIXES:
+            if suffix != path.suffix:
+                candidates.append(path.with_suffix(suffix))
+    else:
+        candidates.extend(path.with_suffix(suffix) for suffix in SUPPORTED_CATALOG_SUFFIXES)
+    return candidates
 
 
 def _decode_concatenated_json_arrays(raw_text: str) -> list[Any]:
@@ -148,10 +177,11 @@ def _deduplicate_products(raw_items: list[dict[str, Any]]) -> list[CatalogProduc
 
 def _build_product(raw_item: dict[str, Any]) -> CatalogProduct:
     keys = tuple(_normalize_sequence(raw_item.get("keys")))
+    url = _normalize_required_text(raw_item.get("link"), "link")
     return CatalogProduct(
         entity_id=_normalize_required_text(raw_item.get("entity_id"), "entity_id"),
-        name=_normalize_required_text(raw_item.get("name"), "name"),
-        url=_normalize_required_text(raw_item.get("link"), "link"),
+        name=_repair_catalog_name(_normalize_required_text(raw_item.get("name"), "name"), url),
+        url=url,
         description=_normalize_text(raw_item.get("description")),
         keys=keys,
         job_levels=tuple(_normalize_sequence(raw_item.get("job_levels"))),
@@ -162,6 +192,75 @@ def _build_product(raw_item: dict[str, Any]) -> CatalogProduct:
         adaptive=_normalize_text(raw_item.get("adaptive")),
         test_type=_derive_test_type(keys),
     )
+
+
+def _repair_catalog_name(name: str, url: str) -> str:
+    """Repair known malformed names using the canonical URL slug as a fallback.
+
+    The provided catalog contains at least one broken name with an embedded
+    newline that drops a critical token, e.g. entity_id=4207:
+    "Microsoft \n 365 (New)" while the URL slug is
+    "microsoft-excel-365-new". We repair only when the slug provides a clearly
+    better Microsoft Office name to avoid mutating healthy rows.
+    """
+    normalized_name = _normalize_text(name)
+    slug_name = _derive_name_from_catalog_url(url)
+    if not slug_name:
+        return normalized_name
+
+    normalized_slug_name = _normalize_text(slug_name)
+    if (
+        normalized_name.casefold() == "microsoft 365 (new)"
+        and normalized_slug_name.startswith("Microsoft ")
+    ):
+        logger.info("Repaired malformed catalog product name %r -> %r", normalized_name, slug_name)
+        return slug_name
+
+    return normalized_name
+
+
+def _derive_name_from_catalog_url(url: str) -> str:
+    parsed = urlparse(url)
+    slug = parsed.path.rstrip("/").split("/")[-1]
+    if not slug:
+        return ""
+
+    tokens = [token for token in slug.split("-") if token and token != "view"]
+    if not tokens:
+        return ""
+
+    display_tokens: list[str] = []
+    parenthetical_tokens: list[str] = []
+    for token in tokens:
+        if token == "new":
+            parenthetical_tokens.append("New")
+        elif token == "adaptive":
+            parenthetical_tokens.append("adaptive")
+        else:
+            display_tokens.append(_format_slug_token(token))
+
+    display_name = " ".join(display_tokens).strip()
+    if not display_name:
+        return ""
+    if parenthetical_tokens:
+        return f"{display_name} ({', '.join(parenthetical_tokens)})"
+    return display_name
+
+
+def _format_slug_token(token: str) -> str:
+    acronym_map = {
+        "aws": "AWS",
+        "gcp": "GCP",
+        "hipaa": "HIPAA",
+        "ms": "MS",
+        "opq": "OPQ",
+        "sjt": "SJT",
+        "sql": "SQL",
+        "svar": "SVAR",
+    }
+    if token.isdigit():
+        return token
+    return acronym_map.get(token, token.capitalize())
 
 
 def _derive_test_type(keys: tuple[str, ...]) -> str:

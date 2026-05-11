@@ -30,6 +30,7 @@ def test_app_lifespan_loads_catalog_index() -> None:
         decision = lifespan_client.app.state.guardrail_service.evaluate(context)
         assert decision.is_allowed is True
         assert lifespan_client.app.state.assessment_agent is not None
+        assert lifespan_client.app.state.direct_assessment_agent is not None
 
 
 def test_chat_returns_required_schema_for_valid_request() -> None:
@@ -77,6 +78,30 @@ def test_chat_recommends_for_specific_role() -> None:
         assert "Core Java (Advanced Level) (New)" in names
         assert "Spring (New)" in names
         assert "SQL (New)" in names
+
+
+def test_chat_direct_mode_skips_clarifying_question_for_senior_dev() -> None:
+    response = client.post(
+        "/chat",
+        json={"messages": [{"role": "user", "content": "a senior dev"}]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recommendations"], "Direct /chat should return a shortlist for a minimally actionable role prompt"
+    assert "skills or technologies" not in body["reply"].lower()
+
+
+def test_v2_chat1_preserves_conversational_clarification_for_senior_dev() -> None:
+    response = client.post(
+        "/v2/chat1",
+        json={"messages": [{"role": "user", "content": "a senior dev"}]},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recommendations"] == []
+    assert "skills" in body["reply"].lower() or "technologies" in body["reply"].lower()
 
 
 def test_chat_refuses_legal_advice_with_empty_recommendations() -> None:

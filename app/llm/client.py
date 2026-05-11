@@ -1,8 +1,8 @@
 """Groq API client with primary/fallback model chain and structured-output support.
 
 Design decisions:
-- Two-model chain: primary (llama-3.3-70b-versatile) then fallback (llama-3.1-8b-instant).
-  A second attempt on a cheaper, faster model is better than surfacing an error to the
+- Two-model chain: primary (openai/gpt-oss-120b) then fallback (openai/gpt-oss-20b).
+  A second attempt on a smaller, faster model is better than surfacing an error to the
   evaluator when the primary model is rate-limited or timing out.
 - Returns None on complete failure so every caller can apply a deterministic fallback
   without the client raising. The service never crashes due to LLM unavailability.

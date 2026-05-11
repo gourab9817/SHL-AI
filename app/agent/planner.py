@@ -32,6 +32,7 @@ class ShortlistPlanner:
 
     def plan_recommendation(self, context: ConversationContext, results: list[RetrievalResult]) -> list[CatalogProduct]:
         products = [result.product for result in results]
+        products = self._filter_unrelated_knowledge_tests(products, context)
         if context.constraints.seniority == "senior" and context.constraints.skills:
             self._append_named(products, "SHL Verify Interactive G+")
             self._append_named(products, "Occupational Personality Questionnaire OPQ32r")
@@ -103,3 +104,44 @@ class ShortlistPlanner:
 
     def _prefer_shorter_products(self, products: list[CatalogProduct]) -> list[CatalogProduct]:
         return [product for product in products if product.name != "Occupational Personality Questionnaire OPQ32r"]
+
+    # Words to ignore when matching product name tokens against user message
+    _NAME_STOPWORDS = frozenset({"new", "general", "platform", "edition", "fundamental", "v1", "v2", "v3"})
+
+    def _filter_unrelated_knowledge_tests(
+        self, products: list[CatalogProduct], context: ConversationContext
+    ) -> list[CatalogProduct]:
+        """Remove Knowledge tests (type K) whose technology isn't mentioned in the
+        user's latest message or detected skills. Non-K products are always kept.
+        Only activates when the user has specified at least one skill, preventing
+        over-filtering for vague/generic queries.
+        """
+        skills = context.constraints.skills
+        if not skills:
+            return products  # No specific skills → keep everything
+
+        normalized_skills = frozenset(normalize_text(s) for s in skills)
+        latest_tokens = frozenset(normalize_text(context.latest_user_message).split())
+
+        result: list[CatalogProduct] = []
+        for product in products:
+            if "K" not in product.test_type:
+                result.append(product)
+                continue
+
+            normalized_name = normalize_text(product.name)
+
+            # Keep if a detected skill keyword appears in the product name
+            if any(skill in normalized_name for skill in normalized_skills):
+                result.append(product)
+                continue
+
+            # Keep if a meaningful word from the product name is also in the user message
+            # (catches role-relevant techs not in SKILL_PATTERNS, e.g. "Linux" for devops)
+            name_tokens = frozenset(normalized_name.split()) - self._NAME_STOPWORDS
+            if name_tokens & latest_tokens:
+                result.append(product)
+                continue
+
+            # K product for an unrelated technology → drop it
+        return result

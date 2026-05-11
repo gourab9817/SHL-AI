@@ -47,6 +47,14 @@ async def lifespan(fastapi_app: FastAPI):
         guardrail_service=fastapi_app.state.guardrail_service,
         llm_generator=fastapi_app.state.llm_generator,
     )
+    fastapi_app.state.direct_assessment_agent = AssessmentAgent(
+        catalog=fastapi_app.state.catalog_index,
+        retriever=fastapi_app.state.catalog_retriever,
+        context_extractor=fastapi_app.state.context_extractor,
+        guardrail_service=fastapi_app.state.guardrail_service,
+        llm_generator=fastapi_app.state.llm_generator,
+        allow_clarification=False,
+    )
     logger.info("Catalog is ready with %s products", len(fastapi_app.state.catalog_index.products))
 
     try:
@@ -91,19 +99,26 @@ def ensure_runtime_services(fastapi_app: FastAPI) -> None:
         guardrail_service=fastapi_app.state.guardrail_service,
         llm_generator=fastapi_app.state.llm_generator,
     )
+    fastapi_app.state.direct_assessment_agent = AssessmentAgent(
+        catalog=fastapi_app.state.catalog_index,
+        retriever=fastapi_app.state.catalog_retriever,
+        context_extractor=fastapi_app.state.context_extractor,
+        guardrail_service=fastapi_app.state.guardrail_service,
+        llm_generator=fastapi_app.state.llm_generator,
+        allow_clarification=False,
+    )
 
 
-async def run_chat_shell(request: ChatRequest) -> ChatResponse:
+async def run_chat_shell(request: ChatRequest, *, conversational: bool) -> ChatResponse:
     ensure_runtime_services(app)
-    return await app.state.assessment_agent.chat(request)
+    agent = app.state.assessment_agent if conversational else app.state.direct_assessment_agent
+    return await agent.chat(request)
 
-
-@app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
+async def _run_chat_endpoint(request: ChatRequest, *, conversational: bool) -> ChatResponse:
     settings = get_settings()
     try:
         return await asyncio.wait_for(
-            run_chat_shell(request),
+            run_chat_shell(request, conversational=conversational),
             timeout=settings.chat_timeout_seconds,
         )
     except TimeoutError:
@@ -117,3 +132,13 @@ async def chat(request: ChatRequest) -> ChatResponse:
             recommendations=[],
             end_of_conversation=False,
         )
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    return await _run_chat_endpoint(request, conversational=False)
+
+
+@app.post("/v2/chat1", response_model=ChatResponse)
+async def chat_v2(request: ChatRequest) -> ChatResponse:
+    return await _run_chat_endpoint(request, conversational=True)

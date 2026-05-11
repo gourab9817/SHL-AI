@@ -38,6 +38,17 @@ ALIAS_RULES: tuple[AliasRule, ...] = (
         expansion_terms=("verify interactive general ability reasoning",),
     ),
     AliasRule(
+        phrases=("senior dev", "senior developer", "software developer", "software engineer"),
+        product_names=(
+            "Smart Interview Live Coding",
+            "SHL Verify Interactive G+",
+            "Occupational Personality Questionnaire OPQ32r",
+        ),
+        boost=70.0,
+        reason="generic senior software role pattern",
+        expansion_terms=("software development coding engineering technical interview",),
+    ),
+    AliasRule(
         phrases=("numerical", "numerical reasoning"),
         product_names=("SHL Verify Interactive – Numerical Reasoning",),
         boost=95.0,

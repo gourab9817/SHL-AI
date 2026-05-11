@@ -8,10 +8,13 @@ logger = logging.getLogger(__name__)
 
 
 PROMPT_INJECTION_PATTERNS = (
+    "ignore all instructions",
+    "ignore instructions",
     "ignore previous",
     "ignore all previous",
     "ignore the above",
     "forget previous",
+    "forget all instructions",
     "system prompt",
     "developer message",
     "you are now",
@@ -75,6 +78,18 @@ OFF_TOPIC_PATTERNS = (
     "travel itinerary",
     "write code",
     "debug my code",
+    "tell me a joke",
+    "write a poem",
+    "sing a song",
+    "what is the capital",
+    "sports score",
+    "movie recommendation",
+    "translate this",
+    "summarize this article",
+    "maggi",
+    "pasta",
+    "football",
+    "cricket score",
 )
 
 ASSESSMENT_SCOPE_PATTERNS = (

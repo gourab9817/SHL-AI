@@ -22,7 +22,8 @@ def test_catalog_loader_normalizes_embedded_newlines() -> None:
     product = catalog.get_by_entity_id("4207")
 
     assert product is not None
-    assert product.name == "Microsoft 365 (New)"
+    assert product.name == "Microsoft Excel 365 (New)"
+    assert catalog.get_by_name("Microsoft Excel 365 (New)") is not None
 
 
 def test_catalog_lookup_finds_known_trace_products() -> None:
@@ -64,3 +65,16 @@ def test_catalog_loader_rejects_missing_file(tmp_path: Path) -> None:
 
     with pytest.raises(CatalogLoadError):
         load_catalog(missing_file)
+
+
+def test_catalog_loader_falls_back_to_txt_when_json_is_broken(tmp_path: Path) -> None:
+    broken_json = tmp_path / "catalog.json"
+    fallback_txt = tmp_path / "catalog.txt"
+
+    broken_json.write_text("{broken json", encoding="utf-8")
+    fallback_txt.write_text(CATALOG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+
+    catalog = load_catalog(broken_json)
+
+    assert len(catalog.products) == 377
+    assert catalog.get_by_name("Global Skills Assessment") is not None

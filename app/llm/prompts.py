@@ -46,6 +46,11 @@ for professional, senior, or leadership roles unless the user explicitly exclude
 and above unless the user explicitly excluded it.
 - For graduate roles, prefer Graduate Scenarios as the situational-judgment component.
 - Respect every explicit exclusion or removal the user stated.
+- CRITICAL — Knowledge/skills tests (test type K): ONLY include a knowledge test if the \
+specific technology or subject it measures is explicitly stated in the HIRING CONTEXT below. \
+For example: do NOT include a Java test when the role is Python; do NOT include an Excel test \
+when the role is software engineering. If the candidate list includes irrelevant skill tests, \
+skip them entirely.
 
 Return a JSON object with exactly these two keys:
 {{

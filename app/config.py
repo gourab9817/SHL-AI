@@ -11,13 +11,13 @@ class Settings(BaseSettings):
         alias="CATALOG_PATH",
     )
     groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
-    groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
+    groq_model: str = Field(default="openai/gpt-oss-120b", alias="GROQ_MODEL")
     groq_fallback_model: str = Field(
-        default="llama-3.1-8b-instant",
+        default="openai/gpt-oss-20b",
         alias="GROQ_FALLBACK_MODEL",
     )
     groq_fast_model: str = Field(
-        default="llama-3.1-8b-instant",
+        default="openai/gpt-oss-20b",
         alias="GROQ_FAST_MODEL",
     )
     chat_timeout_seconds: int = Field(default=25, alias="CHAT_TIMEOUT_SECONDS")

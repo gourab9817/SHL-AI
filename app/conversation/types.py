@@ -23,10 +23,13 @@ class ConversationActions:
     wants_shorter: bool = False
     says_no_preference: bool = False
     confirms_final: bool = False
+    requests_final_list: bool = False
     asks_comparison: bool = False
     asks_recommendation: bool = False
     is_vague_request: bool = False
     has_job_description: bool = False
+    is_greeting: bool = False
+    is_identity_question: bool = False
 
 
 @dataclass(frozen=True)

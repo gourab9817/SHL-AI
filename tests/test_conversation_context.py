@@ -128,6 +128,45 @@ def test_context_detects_confirmation_and_no_preference() -> None:
     assert earlier_context.actions.says_no_preference is True
 
 
+def test_context_detects_explicit_final_list_request() -> None:
+    context = _extract([Message(role="user", content="So give me the final list.")])
+
+    assert context.actions.requests_final_list is True
+
+
+def test_context_detects_confirmation_with_punctuation_normalization() -> None:
+    context = _extract(
+        [
+            Message(role="user", content="I need to quickly screen admin assistants for Excel and Word daily."),
+            Message(
+                role="assistant",
+                content=(
+                    "Updated shortlist with simulations: "
+                    "Microsoft Excel 365 (New), "
+                    "Microsoft Word 365 (New), "
+                    "MS Excel (New), "
+                    "MS Word (New), "
+                    "Occupational Personality Questionnaire OPQ32r."
+                ),
+            ),
+            Message(role="user", content="That's good."),
+        ]
+    )
+
+    assert context.actions.confirms_final is True
+    previous_names = {product.name for product in context.previous_recommendations}
+    assert "Microsoft Excel 365 (New)" in previous_names
+    assert "MS Word (New)" in previous_names
+    assert context.constraints.role_text is None
+
+
+def test_context_does_not_treat_generic_confirmation_as_role_text() -> None:
+    context = _extract([Message(role="user", content="That's good.")])
+
+    assert context.constraints.role_text is None
+    assert context.actions.confirms_final is True
+
+
 def test_context_prefers_latest_constraint_when_user_corrects_seniority() -> None:
     context = _extract(
         [
